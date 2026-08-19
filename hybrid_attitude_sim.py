@@ -76,6 +76,153 @@ def dynamics(t, x, h, J, c, K_omega):
     return np.concatenate((q_dot, omega_dot))
 
 
+def plot_results(results):
+    """
+    Plot and compare attitude-control simulation results.
+
+    Parameters
+    ----------
+    results : list of dict
+        Each dictionary must contain:
+        'times', 'h_values', 'etas', 'omega_squared',
+        'actuator_effort', and 'label'.
+    """
+
+    fig, ax = plt.subplots(4, 1, figsize=(8, 9), sharex=True)
+
+    for result in results:
+
+        times = result["times"]
+        label = result["label"]
+
+        # Logic variable h
+        ax[0].plot(
+            times,
+            result["h_values"],
+            label=label
+        )
+
+        # Quaternion scalar part eta
+        ax[1].plot(
+            times,
+            result["etas"],
+            label=label
+        )
+
+        # Angular velocity squared
+        ax[2].plot(
+            times,
+            result["omega_squared"],
+            label=label
+        )
+
+        # Cumulative control effort
+        ax[3].plot(
+            times,
+            result["actuator_effort"],
+            label=label
+        )
+
+    ax[0].set_ylabel(r"$h$")
+    ax[1].set_ylabel(r"$\eta$")
+    ax[2].set_ylabel(r"$\omega^T\omega$")
+    ax[3].set_ylabel(r"$\int_0^t \tau^T\tau\,dt$")
+    ax[3].set_xlabel("Time [s]")
+
+    for axis in ax:
+        axis.grid(True)
+
+    ax[0].legend()
+
+    fig.suptitle("Hybrid Attitude Control")
+    plt.tight_layout()
+    plt.show()
+
+
+def simulate(
+    J, # inertia matrix
+    c,
+    K_omega,
+    delta, # hysteresis parameter
+    q0,
+    omega0,
+    h0=1, # Logic variable
+    t0=0.0,
+    tf=40.0,
+    dt=0.01
+):
+    """
+    Simulate the hybrid rigid-body attitude dynamics using
+    the energy-based controller.
+    """
+
+    q0 = q0 / np.linalg.norm(q0)
+    x_current = np.concatenate((q0, omega0))
+
+    h = h0
+    t_current = t0
+
+    times = []
+    etas = []
+    h_values = []
+    omega_squared = []
+    quaternions = []
+    tau_squared = []
+
+    while t_current < tf:
+
+        sol = solve_ivp(
+            lambda t, x: dynamics(t, x, h, J, c, K_omega),
+            [t_current, min(t_current + dt, tf)],
+            x_current,
+            method="RK45"
+        )
+
+        x_current = sol.y[:, -1]
+
+        q_current = x_current[:4]
+        omega_current = x_current[4:]
+
+        # Normalize quaternion
+        q_current = q_current / np.linalg.norm(q_current)
+        x_current[:4] = q_current
+
+        eta = q_current[0]
+        eps = q_current[1:]
+
+        # Control torque
+        tau = -c * h * eps - K_omega @ omega_current
+
+        # Store results
+        times.append(sol.t[-1])
+        etas.append(eta)
+        h_values.append(h)
+        omega_squared.append(omega_current.T @ omega_current)
+        quaternions.append(q_current.copy())
+        tau_squared.append(tau.T @ tau)
+
+        # Hybrid jump condition
+        if h * eta <= -delta:
+            h = -h
+
+        t_current = sol.t[-1]
+
+    actuator_effort = cumulative_trapezoid(
+        tau_squared,
+        times,
+        initial=0.0
+    )
+
+    return {
+        "times": np.asarray(times),
+        "h_values": np.asarray(h_values),
+        "etas": np.asarray(etas),
+        "omega_squared": np.asarray(omega_squared),
+        "actuator_effort": np.asarray(actuator_effort),
+        "quaternions": np.asarray(quaternions)
+    }
+
+
 # -----------------------------------
 # Parameters
 # -----------------------------------
@@ -87,132 +234,60 @@ J = np.diag([4.35, 4.33, 3.664])
 c = 0.5
 K_omega = 0.5 * np.eye(3)
 
-# Hysteresis parameter
-delta = 0.45
+# -----------------------------------
+# Initial conditions
+# -----------------------------------
 
-# Initial quaternion (must be unit norm)
-q0 = np.array([
-    0.1,
-    0.8,
-    0.4,
-    0.43
+# Rotation axis used in the paper
+v_hat = np.array([3.0, -4.0, 5.0])
+
+# Unit rotation axis
+v = v_hat / np.linalg.norm(v_hat)
+
+# Initial quaternion:
+# eta = 0 corresponds to a 180-degree rotation
+# from the desired attitude
+q0 = np.concatenate(([0.0], v))
+
+# Initial angular velocity
+omega0 = np.zeros(3)
+
+# Initial logic variable
+h0 = 1
+
+# Simulations
+
+results_discontinuous = simulate(
+    J, c, K_omega,
+    delta=0.0,
+    q0=q0,
+    omega0=omega0
+)
+
+results_hysteresis = simulate(
+    J, c, K_omega,
+    delta=0.45,
+    q0=q0,
+    omega0=omega0
+)
+
+results_discontinuous["label"] = r"Discontinuous ($\delta=0$)"
+results_hysteresis["label"] = r"Hysteresis ($\delta=0.45$)"
+
+plot_results([
+    results_discontinuous,
+    results_hysteresis
 ])
 
-q0 = q0 / np.linalg.norm(q0)
 
-omega0 = np.array([0.0, 0.0, 0.0])
-x0 = np.concatenate((q0, omega0))
+# visualizer = AttitudeVisualizer(
+#     times=times,
+#     quaternions=quaternions,
+#     h_values=h_values,
+#     etas=etas,
+#     omega_squared=omega_squared,
+#     actuator_effort=actuator_effort,
+#     frame_step=20
+# )
 
-# Logic variable
-h = 1
-
-# Simulation settings
-t0 = 0.0
-tf = 40.0
-#dt = 1 / 1000  # 0.001 s
-dt = 1 / 100  # 0.01 s
-
-times = []
-etas = []
-h_values = []
-omega_squared = []
-quaternions = []
-tau_squared = []
-
-t_current = t0
-x_current = x0.copy()
-
-# -----------------------------------
-# Hybrid simulation loop
-# -----------------------------------
-
-while t_current < tf:
-
-    # Integrate small interval
-    sol = solve_ivp(
-        lambda t, x: dynamics(t, x, h, J, c, K_omega),
-        [t_current, min(t_current + dt, tf)],
-        x_current,
-        method="RK45"
-    )
-
-    x_current = sol.y[:, -1]
-
-    q_current = x_current[:4]
-    omega_current = x_current[4:]
-
-    # Normalize quaternion
-    q_current = q_current / np.linalg.norm(q_current)
-    x_current[:4] = q_current
-
-    eta = q_current[0]
-
-    eps = q_current[1:]
-    #omega = -h * K_eps @ eps
-
-    tau = -c * h * eps - K_omega @ omega_current
-    tau_squared.append(tau.T @ tau)
-
-    # Store results
-    omega_squared.append(omega_current.T @ omega_current)
-    quaternions.append(q_current.copy())
-
-    # Hybrid jump condition
-    if h * eta <= -delta:
-        h = -h
-        print(f"Jump at t = {sol.t[-1]:.2f}, new h = {h}")
-
-    times.append(sol.t[-1])
-    etas.append(eta)
-    h_values.append(h)
-
-    t_current = sol.t[-1]
-
-actuator_effort = cumulative_trapezoid(
-    tau_squared,
-    times,
-    initial=0.0
-)
-
-# -----------------------------------
-# Plot
-# -----------------------------------
-
-fig, ax = plt.subplots(4, 1, figsize=(8, 9), sharex=True)
-
-# Logic variable h
-ax[0].plot(times, h_values)
-ax[0].set_ylabel(r"$h$")
-ax[0].grid(True)
-
-# Quaternion scalar part eta
-ax[1].plot(times, etas)
-ax[1].set_ylabel(r"$\eta$")
-ax[1].grid(True)
-
-# Angular velocity squared
-ax[2].plot(times, omega_squared)
-ax[2].set_ylabel(r"$\omega^T\omega$")
-ax[2].grid(True)
-
-# Cumulative control effort
-ax[3].plot(times, actuator_effort)
-ax[3].set_ylabel(r"$\int_0^t \tau^T\tau\,dt$")
-ax[3].set_xlabel("Time [s]")
-ax[3].grid(True)
-
-fig.suptitle("Energy-Based Hybrid Attitude Control")
-plt.tight_layout()
-plt.show()
-
-visualizer = AttitudeVisualizer(
-    times=times,
-    quaternions=quaternions,
-    h_values=h_values,
-    etas=etas,
-    omega_squared=omega_squared,
-    actuator_effort=actuator_effort,
-    frame_step=20
-)
-
-visualizer.animate()
+# visualizer.animate()
