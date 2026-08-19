@@ -120,7 +120,7 @@ def plot_results(results):
         # Logic variable h
         ax[0].plot(
             times,
-            result["h_values"],
+            result["h_filtered"],
             label=label
         )
 
@@ -145,7 +145,7 @@ def plot_results(results):
             label=label
         )
 
-    ax[0].set_ylabel(r"$h$")
+    ax[0].set_ylabel(r"$\mathcal{F}h$")
     ax[1].set_ylabel(r"$\eta$")
     ax[2].set_ylabel(r"$\omega^T\omega$")
     ax[3].set_ylabel(r"$\int_0^t \tau^T\tau\,dt$")
@@ -247,9 +247,32 @@ def simulate(
         initial=0.0
     )
 
+    # -----------------------------------
+    # Filter logic variable for plotting
+    # -----------------------------------
+
+    # First-order low-pass filter used in the paper:
+    # F(s) = beta / (s + beta)
+    beta = 10.0
+
+    # Exact discrete-time decay factor for the sampling period dt
+    alpha = np.exp(-beta * dt)
+
+    # Initialize filtered signal with the same initial condition as h
+    h_filtered = np.zeros(len(h_values), dtype=float)
+    h_filtered[0] = h0
+
+    # Apply first-order low-pass filter to h
+    for k in range(1, len(h_values)):
+        h_filtered[k] = (
+            alpha * h_filtered[k - 1]
+            + (1.0 - alpha) * h_values[k]
+        )
+
     return {
         "times": np.asarray(times),
         "h_values": np.asarray(h_values),
+        "h_filtered": np.asarray(h_filtered),
         "etas": np.asarray(etas),
         "omega_squared": np.asarray(omega_squared),
         "actuator_effort": np.asarray(actuator_effort),
