@@ -2,8 +2,8 @@
 Simulation and visualization of hybrid spacecraft attitude control using quaternions, rigid-body dynamics, and hybrid control laws for global attitude stabilization.
 
 <p align="center">
-  <img src="assets/hybrid_attitude_control.gif"
-       alt="Hybrid spacecraft attitude control simulation"
+  <img src="assets/galileo_attitude_control.gif"
+       alt="Galileo attitude control simulation"
        width="900">
 </p>
 
