@@ -23,7 +23,7 @@ class AttitudeVisualizer:
         self.frame_step = frame_step
 
         self.plotter = pv.Plotter(
-            window_size=(1800, 900)
+            window_size=(2400, 1200)
         )
 
         # Charts
@@ -179,10 +179,16 @@ class AttitudeVisualizer:
         self.plotter.reset_camera()
 
         # Zoom out to fit the complete spacecraft
-        self.plotter.camera.zoom(0.6)
+        self.plotter.camera.zoom(0.9)
 
         # Show window without blocking execution
         self.plotter.show(auto_close=False, interactive_update=True)
+
+        # Start recording
+        self.plotter.open_gif(
+            "assets/galileo_attitude_control.gif",
+            fps=5
+        )
 
         # Animation loop
         for i in range(0, len(self.quaternions), self.frame_step):
@@ -223,6 +229,14 @@ class AttitudeVisualizer:
             )
 
             self.plotter.render()
+
+            # Save current frame
+            self.plotter.write_frame()
+
             self.plotter.update()
 
-        self.plotter.show()
+        # Finish writing the GIF
+        self.plotter.mwriter.close()
+
+        # Close the visualization
+        self.plotter.close()    
