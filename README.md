@@ -57,6 +57,7 @@ Hybrid control overcomes this issue by introducing a discrete logic variable tha
 This project aims to provide an intuitive and visual implementation of these ideas for engineering, learning, and research purposes.
 
 ## Mathematical Model
+
 ### Attitude Representation
 
 The spacecraft attitude is represented using unit quaternions:
@@ -84,30 +85,80 @@ where:
 ### Rigid-Body Dynamics
 
 ```math
-J\dot{\omega} = -\omega \times J\omega + u
+J\dot{\omega} = -\omega \times J\omega + \tau
 ```
 
 where:
 
 - $J$ is the inertia matrix
-- $u$ is the control torque
+- $\tau$ is the control torque
+
+### Continuous Control Laws
+
+Two nonlinear control laws are implemented for the rigid-body dynamics.
+
+#### Energy-Based Controller
+
+The energy-based controller applies the control torque
+
+```math
+\tau = -c h \epsilon - K_\omega \omega
+```
+
+where $c > 0$ and $K_\omega$ is a positive-definite gain matrix.
+
+The first term provides quaternion-based attitude feedback, while the second introduces angular-velocity damping.
+
+#### Backstepping Controller
+
+The backstepping controller introduces the auxiliary variable
+
+```math
+z = \omega + h K_\epsilon \epsilon
+```
+
+and applies the control torque
+
+```math
+\tau =
+-S(J\omega)\omega
+-\frac{h}{2} J K_\epsilon
+\left(\eta I + S(\epsilon)\right)\omega
+-K_z z
+-c h \epsilon
+```
+
+where $K_\epsilon$ and $K_z$ are positive-definite gain matrices.
+
+This controller extends the stabilizing quaternion kinematic feedback to the full rigid-body dynamics using a backstepping design.
 
 ### Hybrid Logic
 
 A binary logic variable is introduced:
+
 ```math
-h \in \{-1, 1\}
+h \in \{-1,1\}
 ```
-with flow and jump sets:
+
+For the energy-based controller, the flow and jump sets are defined by
+
 ```math
-C = \{(q,h): h\eta \geq -\delta\} \\
+C = \{(q,h): h\eta \geq -\delta\}
+```
+
+```math
 D = \{(q,h): h\eta \leq -\delta\}
 ```
-and jump map:
+
+with jump map
+
 ```math
 h^+ = -h
 ```
-This switching mechanism avoids unwinding and guarantees global stabilization.
+
+The hybrid switching mechanism is the key element that prevents quaternion unwinding. By allowing the discrete logic variable $h$ to switch between the two equivalent quaternion representations of the same physical attitude, the controller can select the appropriate equilibrium without forcing an unnecessary full rotation.
+
+The hysteresis parameter $\delta$ defines the switching threshold and improves robustness by preventing excessive switching (chattering) in the presence of measurement noise. Thus, the combination of continuous nonlinear feedback and discrete switching logic provides the hybrid control mechanism used to achieve robust global asymptotic attitude stabilization.
 
 
 ## References
