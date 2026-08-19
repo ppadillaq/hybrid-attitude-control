@@ -47,6 +47,31 @@ class AttitudeVisualizer:
             loc=(0.66, 0.04)
         )
 
+        # Axis labels
+        self.chart_h.x_axis.label = "Time [s]"
+        self.chart_h.y_axis.label = "F h"
+
+        self.chart_eta.x_axis.label = "Time [s]"
+        self.chart_eta.y_axis.label = "eta"
+
+        self.chart_omega.x_axis.label = "Time [s]"
+        self.chart_omega.y_axis.label = "omega^T omega"
+
+        self.chart_effort.x_axis.label = "Time [s]"
+        self.chart_effort.y_axis.label = "Control effort"
+
+        for chart in [
+            self.chart_h,
+            self.chart_eta,
+            self.chart_omega,
+            self.chart_effort
+        ]:
+            chart.x_axis.tick_label_size = 16
+            chart.y_axis.tick_label_size = 16
+
+            chart.x_axis.label_size = 18
+            chart.y_axis.label_size = 18
+
         self.line_h = self.chart_h.line([], [])
         self.line_eta = self.chart_eta.line([], [])
         self.line_omega = self.chart_omega.line([], [])
@@ -84,38 +109,41 @@ class AttitudeVisualizer:
 
     def build_satellite(self):
         """
-        Build a simple satellite geometry using PyVista primitives.
+        Load the Galileo spacecraft STL model and prepare it
+        for quaternion-based attitude animation.
         """
 
-        body = pv.Box(
-            bounds=(-0.5, 0.5,
-                    -0.35, 0.35,
-                    -0.35, 0.35)
+        self.satellite = pv.read("assets/Galileo.stl")
+
+        # Smooth surface appearance
+        self.satellite = self.satellite.compute_normals(
+            point_normals=True,
+            cell_normals=False,
+            split_vertices=False
         )
 
-        left_panel = pv.Box(
-            bounds=(-2.0, -0.6,
-                    -0.05, 0.05,
-                    -0.6, 0.6)
-        )
-
-        right_panel = pv.Box(
-            bounds=(0.6, 2.0,
-                    -0.05, 0.05,
-                    -0.6, 0.6)
-        )
-
-        self.satellite = body.merge(left_panel).merge(right_panel)
-
-        # Store original geometry.
+        # The NASA STL is already centered approximately at
+        # the spacecraft body-frame origin (0, 0, 0).
         self.reference_points = self.satellite.points.copy()
 
-        # Body-frame axes: X, Y, Z
+        # Body-frame axes
+        axis_length = 5.0
         origin = np.array([0.0, 0.0, 0.0])
 
-        x_axis = pv.Line(origin, [1.5, 0.0, 0.0])
-        y_axis = pv.Line(origin, [0.0, 1.5, 0.0])
-        z_axis = pv.Line(origin, [0.0, 0.0, 1.5])
+        x_axis = pv.Line(
+            origin,
+            origin + np.array([axis_length, 0.0, 0.0])
+        )
+
+        y_axis = pv.Line(
+            origin,
+            origin + np.array([0.0, axis_length, 0.0])
+        )
+
+        z_axis = pv.Line(
+            origin,
+            origin + np.array([0.0, 0.0, axis_length])
+        )
 
         self.body_axes = [x_axis, y_axis, z_axis]
 
@@ -131,11 +159,14 @@ class AttitudeVisualizer:
         if self.satellite is None:
             self.build_satellite()
 
+        # Add spacecraft
         self.plotter.add_mesh(
             self.satellite,
-            show_edges=True
+            smooth_shading=True,
+            show_edges=False
         )
 
+        # Add body-frame axes
         self.plotter.add_axes()
         self.plotter.show_grid()
 
@@ -143,14 +174,17 @@ class AttitudeVisualizer:
         self.plotter.add_mesh(self.body_axes[1], color="green", line_width=5)
         self.plotter.add_mesh(self.body_axes[2], color="blue", line_width=5)
 
-        self.plotter.camera_position = [
-            (6, -8, 5),   # camera position
-            (1.5, 0, 0),  # focal point
-            (0, 0, 1)     # up direction
-        ]
+        # Default isometric camera view
+        self.plotter.view_isometric()
+        self.plotter.reset_camera()
 
+        # Zoom out to fit the complete spacecraft
+        self.plotter.camera.zoom(0.6)
+
+        # Show window without blocking execution
         self.plotter.show(auto_close=False, interactive_update=True)
 
+        # Animation loop
         for i in range(0, len(self.quaternions), self.frame_step):
 
             q = self.quaternions[i]
@@ -191,4 +225,4 @@ class AttitudeVisualizer:
             self.plotter.render()
             self.plotter.update()
 
-        self.plotter.close()
+        self.plotter.show()
