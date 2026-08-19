@@ -161,7 +161,7 @@ def plot_results(results):
     plt.show()
 
 
-def simulate(
+def simulate_energy(
     J, # inertia matrix
     c,
     K_omega,
@@ -280,6 +280,150 @@ def simulate(
     }
 
 
+def simulate_backstepping(
+    J,
+    c,
+    K_eps,
+    K_z,
+    delta,
+    q0,
+    omega0,
+    h0=1,
+    t0=0.0,
+    tf=40.0,
+    dt=0.01
+):
+    """
+    Simulate the hybrid rigid-body attitude dynamics using
+    the backstepping controller.
+
+    Backstepping variable:
+        z = omega + h*K_eps*eps
+
+    Control law:
+        tau = -S(J*omega)*omega
+              - (h/2)*J*K_eps*(eta*I + S(eps))*omega
+              - K_z*z
+              - c*h*eps
+
+    Hybrid switching function:
+        Phi(q, omega) = eta
+                        - (1/(2*c))*omega^T*J*K_eps*eps
+
+    Jump condition:
+        h*Phi(q, omega) <= -delta
+    """
+
+    # Normalize initial quaternion
+    q0 = q0 / np.linalg.norm(q0)
+    x_current = np.concatenate((q0, omega0))
+
+    h = h0
+    t_current = t0
+
+    times = []
+    etas = []
+    h_values = []
+    omega_squared = []
+    quaternions = []
+    tau_squared = []
+
+    while t_current < tf:
+
+        # Current state
+        q_current = x_current[:4]
+        omega_current = x_current[4:]
+
+        # One noisy quaternion measurement per sampling period
+        q_tilde = noisy_quaternion_measurement(q_current)
+
+        eta_tilde = q_tilde[0]
+        eps_tilde = q_tilde[1:]
+
+        # Backstepping switching function
+        Phi = (
+            eta_tilde
+            - (1.0 / (2.0 * c))
+            * omega_current.T @ J @ K_eps @ eps_tilde
+        )
+
+        # Hybrid jump logic
+        if h * Phi <= -delta:
+            h = -h
+
+        # Backstepping variable
+        z = omega_current + h * K_eps @ eps_tilde
+
+        # Backstepping control torque
+        tau = (
+            -skew(J @ omega_current) @ omega_current
+            - 0.5 * h * J @ K_eps
+            @ (eta_tilde * np.eye(3) + skew(eps_tilde))
+            @ omega_current
+            - K_z @ z
+            - c * h * eps_tilde
+        )
+
+        # Integrate plant dynamics over one sampling period
+        sol = solve_ivp(
+            lambda t, x: dynamics(t, x, J, tau),
+            [t_current, min(t_current + dt, tf)],
+            x_current,
+            method="RK45"
+        )
+
+        # Updated state
+        x_current = sol.y[:, -1]
+
+        q_current = x_current[:4]
+        omega_current = x_current[4:]
+
+        # Normalize quaternion
+        q_current = q_current / np.linalg.norm(q_current)
+        x_current[:4] = q_current
+
+        # Store results
+        times.append(sol.t[-1])
+        etas.append(q_current[0])
+        h_values.append(h)
+        omega_squared.append(omega_current.T @ omega_current)
+        quaternions.append(q_current.copy())
+        tau_squared.append(tau.T @ tau)
+
+        t_current = sol.t[-1]
+
+    # Cumulative control effort
+    actuator_effort = cumulative_trapezoid(
+        tau_squared,
+        times,
+        initial=0.0
+    )
+
+    # Filter h for visualization:
+    # F(s) = beta / (s + beta)
+    beta = 10.0
+    alpha = np.exp(-beta * dt)
+
+    h_filtered = np.zeros(len(h_values), dtype=float)
+    h_filtered[0] = h0
+
+    for k in range(1, len(h_values)):
+        h_filtered[k] = (
+            alpha * h_filtered[k - 1]
+            + (1.0 - alpha) * h_values[k]
+        )
+
+    return {
+        "times": np.asarray(times),
+        "h_values": np.asarray(h_values),
+        "h_filtered": np.asarray(h_filtered),
+        "etas": np.asarray(etas),
+        "omega_squared": np.asarray(omega_squared),
+        "actuator_effort": np.asarray(actuator_effort),
+        "quaternions": np.asarray(quaternions)
+    }
+
+
 # -----------------------------------
 # Parameters
 # -----------------------------------
@@ -314,14 +458,14 @@ h0 = 1
 
 # Simulations
 
-results_discontinuous = simulate(
+results_discontinuous = simulate_energy(
     J, c, K_omega,
     delta=0.0,
     q0=q0,
     omega0=omega0
 )
 
-results_hysteresis = simulate(
+results_hysteresis = simulate_energy(
     J, c, K_omega,
     delta=0.45,
     q0=q0,
@@ -348,3 +492,85 @@ plot_results([
 # )
 
 # visualizer.animate()
+
+
+
+# -----------------------------------
+# Simulation parameters - Fig. 2
+# -----------------------------------
+
+# Inertia matrix
+J = np.diag([4.35, 4.33, 3.664])
+
+# Common controller parameters
+c = 1.0
+delta = 0.45
+
+# Energy-based controller gains
+K_omega_energy = np.eye(3)
+
+# Backstepping controller gains
+K_eps = 0.5 * np.eye(3)
+K_z = 0.25 * np.eye(3)
+
+# Rotation axis
+v_hat = np.array([3.0, -4.0, 5.0])
+v = v_hat / np.linalg.norm(v_hat)
+
+# Initial conditions for Fig. 2
+q0 = np.array([1.0, 0.0, 0.0, 0.0])
+omega0 = 2.0 * v
+h0 = 1
+
+# Simulation settings
+tf = 20.0
+dt = 1 / 1000
+
+
+# -----------------------------------
+# Energy-based controller
+# -----------------------------------
+
+results_energy = simulate_energy(
+    J=J,
+    c=c,
+    K_omega=K_omega_energy,
+    delta=delta,
+    q0=q0,
+    omega0=omega0,
+    h0=h0,
+    tf=tf,
+    dt=dt
+)
+
+results_energy["label"] = "Energy-based"
+
+
+# -----------------------------------
+# Backstepping controller
+# -----------------------------------
+
+results_backstepping = simulate_backstepping(
+    J=J,
+    c=c,
+    K_eps=K_eps,
+    K_z=K_z,
+    delta=delta,
+    q0=q0,
+    omega0=omega0,
+    h0=h0,
+    tf=tf,
+    dt=dt
+)
+
+results_backstepping["label"] = "Backstepping"
+
+
+# -----------------------------------
+# Compare controllers
+# -----------------------------------
+
+plot_results([
+    results_energy,
+    results_backstepping
+])
