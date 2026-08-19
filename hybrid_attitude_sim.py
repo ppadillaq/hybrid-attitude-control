@@ -33,32 +33,54 @@ def quaternion_product(q, p):
 
     return np.concatenate(([scalar], vector))
 
-
-def dynamics(t, x, h, J, c, K_omega):
+def noisy_quaternion_measurement(q, noise_bound=0.4):
     """
-    Rigid-body attitude dynamics with energy-based control:
+    Quaternion measurement with bounded random noise:
+
+    q_tilde = (q + e) / ||q + e||
+
+    with ||e||^2 <= noise_bound.
+    """
+
+    # Random direction in R^4
+    e = np.random.uniform(-1.0, 1.0, size=4)
+
+    # Normalize direction
+    e = e / np.linalg.norm(e)
+
+    # Random squared norm uniformly distributed in [0, noise_bound]
+    e_norm_squared = np.random.uniform(0.0, noise_bound)
+
+    # Set ||e||^2 = e_norm_squared
+    e *= np.sqrt(e_norm_squared)
+
+    # Noisy quaternion measurement
+    q_tilde = q + e
+    q_tilde /= np.linalg.norm(q_tilde)
+
+    return q_tilde
+
+
+def dynamics(t, x, J, tau):
+    """
+    Rigid-body attitude plant dynamics:
 
     q_dot = 1/2 * q ⊗ nu(omega)
 
     omega_dot = J^-1 * (S(J*omega)*omega + tau)
 
-    tau = -c*h*eps - K_omega*omega
-
     State:
         x = [q, omega]
         q     = [eta, eps1, eps2, eps3]
         omega = [wx, wy, wz]
+
+    Input:
+        tau = control torque
     """
 
     # States
     q = x[:4]
     omega = x[4:]
-
-    #eta = q[0]
-    eps = q[1:]
-
-    # Energy-based control torque
-    tau = -c * h * eps - K_omega @ omega
 
     # Quaternion kinematics
     nu_omega = np.concatenate(([0.0], omega))
@@ -153,7 +175,7 @@ def simulate(
 ):
     """
     Simulate the hybrid rigid-body attitude dynamics using
-    the energy-based controller.
+    the energy-based controller with noisy quaternion measurements.
     """
 
     q0 = q0 / np.linalg.norm(q0)
@@ -171,13 +193,32 @@ def simulate(
 
     while t_current < tf:
 
+        # Current state
+        q_current = x_current[:4]
+        omega_current = x_current[4:]
+
+        # One noisy measurement per sampling period
+        q_tilde = noisy_quaternion_measurement(q_current)
+
+        eta_tilde = q_tilde[0]
+        eps_tilde = q_tilde[1:]
+
+        # Hybrid jump logic
+        if h * eta_tilde <= -delta:
+            h = -h
+
+        # Energy-based controller
+        tau = -c * h * eps_tilde - K_omega @ omega_current
+
+        # Integrate plant dynamics over one sampling period
         sol = solve_ivp(
-            lambda t, x: dynamics(t, x, h, J, c, K_omega),
+            lambda t, x: dynamics(t, x, J, tau),
             [t_current, min(t_current + dt, tf)],
             x_current,
             method="RK45"
         )
 
+        # Updated state
         x_current = sol.y[:, -1]
 
         q_current = x_current[:4]
@@ -188,10 +229,7 @@ def simulate(
         x_current[:4] = q_current
 
         eta = q_current[0]
-        eps = q_current[1:]
-
-        # Control torque
-        tau = -c * h * eps - K_omega @ omega_current
+        #eps = q_current[1:]
 
         # Store results
         times.append(sol.t[-1])
@@ -200,10 +238,6 @@ def simulate(
         omega_squared.append(omega_current.T @ omega_current)
         quaternions.append(q_current.copy())
         tau_squared.append(tau.T @ tau)
-
-        # Hybrid jump condition
-        if h * eta <= -delta:
-            h = -h
 
         t_current = sol.t[-1]
 
