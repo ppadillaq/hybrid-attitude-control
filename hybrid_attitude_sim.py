@@ -170,8 +170,8 @@ def simulate_energy(
     omega0,
     h0=1, # Logic variable
     t0=0.0,
-    tf=40.0,
-    dt=0.01
+    tf=20.0,
+    dt=0.001
 ):
     """
     Simulate the hybrid rigid-body attitude dynamics using
@@ -458,12 +458,12 @@ h0 = 1
 
 # Simulations
 
-results_discontinuous = simulate_energy(
-    J, c, K_omega,
-    delta=0.0,
-    q0=q0,
-    omega0=omega0
-)
+# results_discontinuous = simulate_energy(
+#     J, c, K_omega,
+#     delta=0.0,
+#     q0=q0,
+#     omega0=omega0
+# )
 
 results_hysteresis = simulate_energy(
     J, c, K_omega,
@@ -472,27 +472,25 @@ results_hysteresis = simulate_energy(
     omega0=omega0
 )
 
-results_discontinuous["label"] = r"Discontinuous ($\delta=0$)"
-results_hysteresis["label"] = r"Hysteresis ($\delta=0.45$)"
+# results_discontinuous["label"] = r"Discontinuous ($\delta=0$)"
+# results_hysteresis["label"] = r"Hysteresis ($\delta=0.45$)"
 
-plot_results([
-    results_discontinuous,
-    results_hysteresis
-])
+# plot_results([
+#     results_discontinuous,
+#     results_hysteresis
+# ])
 
+visualizer = AttitudeVisualizer(
+    times=results_hysteresis["times"],
+    quaternions=results_hysteresis["quaternions"],
+    h_values=results_hysteresis["h_values"],
+    etas=results_hysteresis["etas"],
+    omega_squared=results_hysteresis["omega_squared"],
+    actuator_effort=results_hysteresis["actuator_effort"],
+    frame_step=50
+)
 
-# visualizer = AttitudeVisualizer(
-#     times=times,
-#     quaternions=quaternions,
-#     h_values=h_values,
-#     etas=etas,
-#     omega_squared=omega_squared,
-#     actuator_effort=actuator_effort,
-#     frame_step=20
-# )
-
-# visualizer.animate()
-
+visualizer.animate()
 
 
 # -----------------------------------
@@ -523,7 +521,7 @@ omega0 = 2.0 * v
 h0 = 1
 
 # Simulation settings
-tf = 20.0
+tf = 40.0
 dt = 1 / 1000
 
 
@@ -531,46 +529,48 @@ dt = 1 / 1000
 # Energy-based controller
 # -----------------------------------
 
-results_energy = simulate_energy(
-    J=J,
-    c=c,
-    K_omega=K_omega_energy,
-    delta=delta,
-    q0=q0,
-    omega0=omega0,
-    h0=h0,
-    tf=tf,
-    dt=dt
-)
+# results_energy = simulate_energy(
+#     J=J,
+#     c=c,
+#     K_omega=K_omega_energy,
+#     delta=delta,
+#     q0=q0,
+#     omega0=omega0,
+#     h0=h0,
+#     tf=tf,
+#     dt=dt
+# )
 
-results_energy["label"] = "Energy-based"
+# results_energy["label"] = "Energy-based"
 
 
 # -----------------------------------
 # Backstepping controller
 # -----------------------------------
 
-results_backstepping = simulate_backstepping(
-    J=J,
-    c=c,
-    K_eps=K_eps,
-    K_z=K_z,
-    delta=delta,
-    q0=q0,
-    omega0=omega0,
-    h0=h0,
-    tf=tf,
-    dt=dt
-)
+# results_backstepping = simulate_backstepping(
+#     J=J,
+#     c=c,
+#     K_eps=K_eps,
+#     K_z=K_z,
+#     delta=delta,
+#     q0=q0,
+#     omega0=omega0,
+#     h0=h0,
+#     tf=tf,
+#     dt=dt
+# )
 
-results_backstepping["label"] = "Backstepping"
+# results_backstepping["label"] = "Backstepping"
 
 
 # -----------------------------------
 # Compare controllers
 # -----------------------------------
 
-plot_results([
-    results_energy,
-    results_backstepping
-])
+# plot_results([
+#     results_energy,
+#     results_backstepping
+# ])
+
+
